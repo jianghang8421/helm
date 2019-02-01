@@ -1,6 +1,5 @@
----
 kind: pipeline
-name: default
+name: amd64
 
 platform:
   os: linux
@@ -11,49 +10,57 @@ workspace:
   path: /src/k8s.io/helm
 
 steps:
-- name: build
-  pull: default
-  image: golang:1.10
-  commands:
-  - ./.circleci/bootstrap.sh
-  - make test-unit
-  - make build
-  environment:
-    PROJECT_NAME: "\"kubernetes-helm\""
-
-- name: publish-github-rc
-  pull: default
-  image: plugins/github-release
-  settings:
-    api_key:
-      from_secret: github_token
-    checksum:
-    - sha256
-    files:
-    - "bin/*"
-    prerelease: true
-  when:
-    event:
-    - tag
-    ref:
-    - "refs/tags/*rc*"
-    - refs/heads/rancher
-
-- name: github_binary_release
-  pull: default
-  image: plugins/github-release
-  settings:
-    checksum:
-    - sha256
-    files:
-    - "bin/*"
-    api_key:
-      from_secret: github_token
-  when:
-    event:
-    - tag
-    ref:
-      include:
-      - refs/heads/rancher
-      exclude:
-      - refs/heads/rancher
+  - name: build
+    image: golang:1.10
+    environment:
+      PROJECT_NAME: "kubernetes-helm"
+      TARGETS: linux/amd64 linux/arm64
+    commands:
+      - ./.circleci/bootstrap.sh
+      - make test-unit
+      - make build-cross APP=helm
+      - make build-cross APP=tiller
+      - make build-cross APP=rudder
+      - mv ./_dist/linux-arm64/helm ./_dist/linux-arm64/helm-arm64
+      - mv ./_dist/linux-arm64/tiller ./_dist/linux-arm64/tiller-arm64
+      - mv ./_dist/linux-arm64/rudder ./_dist/linux-arm64/rudder-arm64
+  - name: github_binary_prerelease
+    image: plugins/github-release:linux-amd64
+    settings:
+      prerelease: true
+      api_key:
+        from_secret: github_token
+      files:
+        - bin/*
+        - _dist/linux-amd64/*
+        - _dist/linux-arm64/*
+      checksum:
+        - sha256
+    when:
+      event: tag
+      ref:
+        include: 
+          - "refs/tags/*rc*"
+          - refs/heads/rancher
+  - name: github_binary_release
+    image: plugins/github-release:linux-amd64
+    settings:
+      api_key:
+        from_secret: github_token
+      files:
+        - bin/*
+        - _dist/linux-amd64/*
+        - _dist/linux-arm64/*
+      checksum:
+        - sha256
+    when:
+      event: tag
+      ref:
+        exclude:
+          - "refs/tags/*rc*"
+        include:
+          - refs/heads/rancher
+volumes:
+  - name: docker
+    host:
+      path: /var/run/docker.sock
